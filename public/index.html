@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Lego Market – Find the best Lego deals from Avenue de la Brique and more. Browse by franchise, set, theme, and price." />
+  <title>Lego Market – Best Deals on Bricks</title>
+
+  <!-- Fonts: Fredoka (display) + Nunito (body) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Google Material Symbols Rounded -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ======== HEADER ======== -->
+  <header class="site-header" role="banner">
+    <div class="header-inner">
+
+      <!-- Logo -->
+      <a class="logo" href="/" aria-label="Lego Market Home">
+        <div class="logo-icon" aria-hidden="true">
+          <span class="material-symbols-rounded">toys</span>
+        </div>
+        <div class="logo-text-wrap">
+          <span class="logo-title">LEGO</span>
+          <span class="logo-subtitle">MARKET</span>
+        </div>
+      </a>
+
+      <!-- Search -->
+      <div class="header-search-wrap">
+        <form class="search-bar" id="search-form" role="search">
+          <span class="material-symbols-rounded search-icon">search</span>
+          <input type="search" id="search-input" name="q" placeholder="Search sets, themes, or set numbers…" autocomplete="off" aria-label="Search Lego sets" />
+          <button type="button" class="search-clear" id="search-clear" aria-label="Clear search" hidden>✕</button>
+        </form>
+        <!-- search dropdown -->
+        <div class="search-dropdown" id="search-dropdown" hidden role="listbox" aria-label="Search results"></div>
+      </div>
+
+      <!-- Nav -->
+      <nav class="header-nav" aria-label="Site navigation">
+        <a class="nav-link active" href="#deals" data-scroll="deals">All Deals</a>
+        <a class="nav-link" href="#franchises" data-scroll="franchises">Franchises</a>
+        <a class="nav-link" href="#spotlight" data-scroll="spotlight">
+          <span class="fire-icon"><span class="material-symbols-rounded" style="font-size:18px;">local_fire_department</span></span> Hot
+        </a>
+      </nav>
+
+      <!-- Mobile menu toggle -->
+      <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Toggle menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="stats-bar" id="stats-bar">
+      <div class="stats-inner">
+        <span class="stat-item" id="stat-sets">Loading…</span>
+        <span class="stat-sep">•</span>
+        <span class="stat-item" id="stat-deals">—</span>
+        <span class="stat-sep">•</span>
+        <span class="stat-item" id="stat-best">—</span>
+        <span class="stat-spacer"></span>
+        <span class="stat-item refresh-btn" id="refresh-btn" title="Refresh data from sources">
+          <span class="material-symbols-rounded" id="refresh-icon">refresh</span> Refresh
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ======== HERO ======== -->
+  <section class="hero-section" id="hero" aria-label="Featured deals">
+    <div class="hero-track" id="hero-track">
+      <!-- injected by JS -->
+    </div>
+    <div class="hero-controls">
+      <button class="hero-arrow hero-prev" id="hero-prev" aria-label="Previous slide">‹</button>
+      <div class="hero-dots" id="hero-dots" role="tablist" aria-label="Hero slides"></div>
+      <button class="hero-arrow hero-next" id="hero-next" aria-label="Next slide">›</button>
+    </div>
+  </section>
+
+  <!-- ======== MARQUEE ======== -->
+  <div class="marquee-strip" aria-label="Deal ticker" aria-live="off">
+    <div class="marquee-track" id="marquee-track"><!-- injected --></div>
+  </div>
+
+  <!-- ======== MAIN ======== -->
+  <main class="main-content">
+
+    <!-- ---- SPOTLIGHT ---- -->
+    <section class="section" id="spotlight" aria-labelledby="spotlight-title">
+      <header class="section-header">
+        <div class="section-title-group">
+          <h2 class="section-title" id="spotlight-title">
+            <span class="material-symbols-rounded" style="color:#E07B39; vertical-align:-3px; margin-right:4px;">local_fire_department</span> Too Good to Be True
+          </h2>
+          <p class="section-desc">Verified deals with exceptional discounts — grab them fast</p>
+        </div>
+      </header>
+      <div class="spotlight-grid" id="spotlight-grid">
+        <div class="skeleton-grid">
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---- FRANCHISES ---- -->
+    <section class="section" id="franchises" aria-labelledby="franchises-title">
+      <header class="section-header">
+        <div class="section-title-group">
+          <h2 class="section-title" id="franchises-title">Franchises</h2>
+          <p class="section-desc">Browse deals by your favourite Lego universe</p>
+        </div>
+      </header>
+      <div class="franchise-container" id="franchise-container">
+        <div class="skeleton-grid">
+          <div class="skeleton-card tall"></div>
+          <div class="skeleton-card tall"></div>
+          <div class="skeleton-card tall"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---- ALL DEALS ---- -->
+    <section class="section" id="deals" aria-labelledby="deals-title">
+      <header class="section-header deals-header">
+        <div class="section-title-group">
+          <h2 class="section-title" id="deals-title">All Deals</h2>
+          <p class="section-desc"><span id="deal-count">—</span> deals found</p>
+        </div>
+        <div class="deals-controls">
+          <!-- Filter chips -->
+          <div class="filter-chips" id="filter-chips" role="group" aria-label="Filter by franchise">
+            <button class="chip active" data-franchise="all">All</button>
+            <!-- more injected by JS -->
+          </div>
+          <!-- Sort -->
+          <div class="sort-wrap">
+            <label for="sort-select" class="sort-label">Sort</label>
+            <select id="sort-select" aria-label="Sort deals">
+              <option value="deal">Best Deal</option>
+              <option value="discount">Biggest Discount</option>
+              <option value="price-asc">Price ↑</option>
+              <option value="price-desc">Price ↓</option>
+              <option value="hot">Most Votes</option>
+              <option value="newest">Newest</option>
+            </select>
+          </div>
+        </div>
+      </header>
+      <div class="deals-grid" id="deals-grid">
+        <!-- injected by JS -->
+      </div>
+      <div class="load-more-wrap" id="load-more-wrap" hidden>
+        <button class="btn-load-more" id="load-more-btn">Load more</button>
+      </div>
+      <div class="empty-state" id="empty-state" hidden>
+        <div class="empty-icon"><span class="material-symbols-rounded" style="font-size: 3rem;">toys</span></div>
+        <h3>No deals found</h3>
+        <p>Try a different filter or check back after a refresh.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ======== FOOTER ======== -->
+  <footer class="site-footer" role="contentinfo">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <div class="logo-title" style="font-size:1.3rem">LEGO MARKET</div>
+        <p>Your cozy corner for the best brick deals on the internet.</p>
+        <p class="footer-disclaimer">Not affiliated with the LEGO Group.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Sources</h4>
+        <ul>
+          <li><a href="https://www.avenuedelabrique.com/" target="_blank" rel="noopener noreferrer">Avenue de la Brique</a></li>
+          <li><a href="https://www.dealabs.com/search?q=lego" target="_blank" rel="noopener noreferrer">Dealabs</a></li>
+          <li><a href="https://www.vinted.fr/brand/89162-lego" target="_blank" rel="noopener noreferrer">Vinted</a></li>
+          <li><a href="https://rebrickable.com/api/" target="_blank" rel="noopener noreferrer">Rebrickable API</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Browse</h4>
+        <ul id="footer-franchise-links">
+          <li><a href="#deals" data-scroll="deals">All Deals</a></li>
+          <li><a href="#spotlight" data-scroll="spotlight">Hot Deals</a></li>
+          <li><a href="#franchises" data-scroll="franchises">Franchises</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Data</h4>
+        <ul>
+          <li><a href="/api/deals" target="_blank">API: Deals</a></li>
+          <li><a href="/api/franchises" target="_blank">API: Franchises</a></li>
+          <li><a href="/api/stats" target="_blank">API: Stats</a></li>
+          <li><span class="refresh-link" id="footer-refresh">⟳ Refresh now</span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>© 2026 Lego Market &nbsp;•&nbsp; Prices updated every 2 hours from public sources</p>
+    </div>
+  </footer>
+
+  <!-- ======== TOAST ======== -->
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

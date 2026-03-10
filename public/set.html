@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Set Details – Lego Market</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .set-page-main {
+      max-width: 1000px;
+      margin: 4rem auto;
+      padding: 0 1.5rem;
+      color: var(--text-cream);
+    }
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--accent-gold);
+      text-decoration: none;
+      font-weight: 600;
+      margin-bottom: 2rem;
+      transition: color 0.2s;
+    }
+    .back-btn:hover {
+      color: #fff;
+    }
+    .set-layout {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 3rem;
+      background: var(--bg-surface);
+      border-radius: var(--r-lg);
+      padding: 2.5rem;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+    .set-img-col {
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+    .set-img-wrap {
+      background: var(--bg-elevated);
+      border-radius: var(--r-md);
+      padding: 2.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 320px;
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+    }
+    .set-img-wrap img {
+      width: 100%;
+      height: auto;
+      max-height: 400px;
+      object-fit: contain;
+      filter: drop-shadow(0 12px 24px rgba(0,0,0,0.4));
+    }
+    
+    .set-info-col {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+    .set-franchise {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--font-heading);
+      color: var(--accent-gold);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-size: 0.85rem;
+    }
+    .set-franchise svg { width: 16px; height: 16px; }
+    
+    .set-title {
+      font-family: var(--font-heading);
+      font-size: clamp(2rem, 4vw, 2.5rem);
+      line-height: 1.1;
+      font-weight: 700;
+      margin: 0;
+    }
+    
+    .set-meta-text {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+    }
+    
+    .set-grid-data {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 1.5rem;
+      background: var(--bg-base);
+      padding: 1.5rem;
+      border-radius: var(--r-md);
+      border: 1px solid rgba(255,255,255,0.03);
+    }
+    .data-label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 0.25rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .data-val {
+      font-weight: 700;
+      font-size: 1.2rem;
+      color: var(--text-cream);
+    }
+
+    .deals-box {
+      background: #1A0E08;
+      border-radius: var(--r-md);
+      padding: 1.5rem;
+      border: 1px solid var(--accent-gold);
+      box-shadow: 0 0 20px rgba(224, 123, 57, 0.1);
+    }
+    .deals-title {
+      font-family: var(--font-heading);
+      font-size: 1.25rem;
+      margin-bottom: 1.2rem;
+      color: var(--accent-gold);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .deal-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .deal-row:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    .deal-source {
+      color: var(--text-cream);
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .deal-source:hover { text-decoration: underline; color: #fff; }
+    .deal-price {
+      font-family: var(--font-heading);
+      font-size: 1.5rem;
+      color: var(--text-cream);
+    }
+    .deal-badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      margin-left: 0.5rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      background: var(--accent);
+      color: #fff;
+      font-family: var(--font-body);
+      font-weight: 700;
+      font-size: 1rem;
+      padding: 0.8rem 1.5rem;
+      border: none;
+      border-radius: var(--r-md);
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn:hover {
+      background: var(--accent-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(224, 123, 57, 0.4);
+    }
+
+    @media (max-width: 768px) {
+      .set-layout {
+        grid-template-columns: 1fr;
+        padding: 1.5rem;
+        gap: 2rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ======== HEADER ======== -->
+  <header class="site-header" role="banner">
+    <div class="header-inner" style="justify-content: flex-start; gap: 2rem;">
+      <a class="logo" href="/" aria-label="Lego Market Home">
+        <div class="logo-icon" aria-hidden="true">
+          <span class="material-symbols-rounded">toys</span>
+        </div>
+        <div class="logo-text-wrap">
+          <span class="logo-title">LEGO</span>
+          <span class="logo-subtitle">MARKET</span>
+        </div>
+      </a>
+      <nav class="header-nav">
+        <a class="nav-link" href="/">← Back to Market</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="set-page-main" id="set-container">
+    <div style="font-size: 2rem; text-align: center; color: var(--text-muted); margin-top: 4rem;">
+      <span class="material-symbols-rounded" style="font-size:3rem; animation: spin 1s linear infinite;">refresh</span>
+    </div>
+  </main>
+
+  <script src="set.js"></script>
+</body>
+</html>
