@@ -24,7 +24,7 @@
       <!-- Logo -->
       <a class="logo" href="/" aria-label="Lego Market Home">
         <div class="logo-icon" aria-hidden="true">
-          <span class="material-symbols-rounded">toys</span>
+          <img src="logo.png" alt="Lego Market Logo" class="header-logo-img" />
         </div>
         <div class="logo-text-wrap">
           <span class="logo-title">LEGO</span>
@@ -73,6 +73,24 @@
       </div>
     </div>
   </header>
+
+  <!-- ======== STICKY FILTER BAR (appears when scrolling to #deals) ======== -->
+  <div class="deals-filter-bar" id="deals-filter-bar" role="toolbar" aria-label="Filter deals">
+    <span class="dfb-label">Filter</span>
+    <!-- chips cloned from #filter-chips by JS -->
+    <div class="filter-chips" id="dfb-chips" role="group"></div>
+    <div class="sort-wrap">
+      <label for="dfb-sort" class="sort-label">Sort</label>
+      <select id="dfb-sort" aria-label="Sort deals (sticky)">
+        <option value="deal">Best Deal</option>
+        <option value="discount">Biggest Discount</option>
+        <option value="price-asc">Price ↑</option>
+        <option value="price-desc">Price ↓</option>
+        <option value="hot">Most Votes</option>
+        <option value="newest">Newest</option>
+      </select>
+    </div>
+  </div>
 
   <!-- ======== HERO ======== -->
   <section class="hero-section" id="hero" aria-label="Featured deals">

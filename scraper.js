@@ -46,6 +46,9 @@ async function scrapeAll() {
     console.log(`[Scraper] Saved ${allDeals.length} deals to DB`);
   }
 
+  // Enrich retail prices in the background (non-blocking)
+  enrichRetailPrices().catch(e => console.warn('[Scraper] Price enrichment warning:', e.message));
+
   return allDeals;
 }
 
@@ -183,6 +186,10 @@ async function scrapeDealabs({ name, url }) {
 
       const sourceUrl = `https://www.dealabs.com/bons-plans/${thread.titleSlug}-${thread.threadId}`;
 
+      // Extract image URL from the thread's <img> element
+      const imgEl = $(el).find('img.thread-image');
+      const imgUrl = imgEl.attr('src') || '';
+
       // Ensure the set is in DB
       const existing = db.getSet(setNum);
       if (!existing) {
@@ -194,10 +201,12 @@ async function scrapeDealabs({ name, url }) {
           theme_id: null,
           theme_name: 'other',
           franchise: 'other',
-          img_url: '',
+          img_url: imgUrl,
           description: '',
           piece_url: sourceUrl,
         });
+      } else if (!existing.img_url && imgUrl) {
+        db.upsertSet({ ...existing, img_url: imgUrl });
       }
 
       deals.push({
@@ -258,14 +267,16 @@ async function scrapeVinted({ name, url }) {
     // Ensure the set is in DB
     const existing = db.getSet(setNum);
     if (!existing) {
+      const itemName = altText.split(',')[0].trim() || `Vinted Set ${setNum}`;
+      const detectedFranchise = guessFranchiseFromText(itemName, '') || 'other';
       db.upsertSet({
         set_num: setNum,
-        name: altText.split(',')[0].trim() || `Vinted Set ${setNum}`,
+        name: itemName,
         year: null,
         num_parts: null,
         theme_id: null,
-        theme_name: 'other',
-        franchise: 'other',
+        theme_name: detectedFranchise,
+        franchise: detectedFranchise,
         img_url: $img.attr('src') || '',
         description: '',
         piece_url: href,
@@ -285,6 +296,45 @@ async function scrapeVinted({ name, url }) {
   return deals;
 }
 
+// ---- Retail Price Enrichment ----
+
+async function enrichRetailPrices() {
+  const sets = db.getSetsNeedingRetailPrice(30);
+  if (!sets.length) return;
+  console.log(`[Scraper] Enriching retail prices for ${sets.length} sets...`);
+
+  const delay = ms => new Promise(r => setTimeout(r, ms));
+
+  for (const { set_num } of sets) {
+    try {
+      const { data } = await axios.get(`https://www.brickset.com/sets/${set_num}`, {
+        timeout: 10000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+      });
+      const $ = cheerio.load(data);
+      let rrp = null;
+
+      $('dl dt').each((_, dt) => {
+        if ($(dt).text().trim() === 'RRP') {
+          const ddText = $(dt).next('dd').text();
+          // e.g. "£149.99/$169.99/€169.99" -> extract EUR
+          const eurMatch = ddText.match(/€([\d,]+(?:\.?\d+)?)/);
+          if (eurMatch) rrp = parseFloat(eurMatch[1].replace(',', '.'));
+        }
+      });
+
+      if (rrp) {
+        db.upsertRetailPrice(set_num, rrp);
+        console.log(`[Scraper] ✓ RRP for ${set_num}: €${rrp}`);
+      }
+
+      await delay(800); // be polite to Brickset
+    } catch(e) {
+      // silently skip, will retry next cycle
+    }
+  }
+}
+
 // ---- Helpers ----
 
 function extractName(text, setNum) {
@@ -297,29 +347,162 @@ function extractName(text, setNum) {
 function guessThemeFromUrl(url) {
   const match = url.match(/\/lego-([^/]+)\//);
   if (!match) return 'other';
-  const slug = match[1];
-  const map = {
-    'star-wars': 'star-wars',
-    'harry-potter': 'harry-potter',
-    'technic': 'technic',
-    'city': 'city',
-    'creator': 'creator',
-    'ideas': 'ideas',
-    'marvel': 'marvel',
-    'dc-comics': 'dc',
-    'ninjago': 'ninjago',
-    'minecraft': 'minecraft',
-    'pokemon': 'pokemon',
-    'indiana-jones': 'indiana-jones',
-    'speed-champions': 'speed-champions',
-    'architecture': 'architecture',
-    'icons': 'icons',
-    'disney': 'disney',
-  };
-  for (const [key, val] of Object.entries(map)) {
-    if (slug.includes(key)) return val;
-  }
-  return slug;
+  const slug = match[1].replace(/-/g, ' ');
+  return guessFranchiseFromText(slug, '') || slug.split(' ')[0];
 }
 
-module.exports = { scrapeAll };
+/**
+ * Comprehensive keyword → franchise mapper.
+ * Checks set name + optional theme string for known LEGO universe keywords.
+ * Returns the mapped franchise slug, or null if no match.
+ */
+function guessFranchiseFromText(name, theme) {
+  const text = `${name || ''} ${theme || ''}`.toLowerCase();
+
+  // Order matters: more specific first
+  const KEYWORDS = [
+    // Licensed universes
+    ['star wars', 'star-wars'],
+    ['harry potter', 'harry-potter'],
+    ['fantastic beasts', 'harry-potter'],
+    ['hogwarts', 'harry-potter'],
+    ['hermione', 'harry-potter'],
+    ['marvel', 'marvel'],
+    ['avengers', 'marvel'],
+    ['iron man', 'marvel'],
+    ['spider.man', 'marvel'],
+    ['spiderman', 'marvel'],
+    ['captain america', 'marvel'],
+    ['guardians of the galaxy', 'marvel'],
+    ['x-men', 'marvel'],
+    ['black panther', 'marvel'],
+    ['thor', 'marvel'],
+    ['dc ', 'dc'],
+    ['batman', 'dc'],
+    ['superman', 'dc'],
+    ['wonder woman', 'dc'],
+    ['justice league', 'dc'],
+    ['the flash', 'dc'],
+    ['indiana jones', 'indiana-jones'],
+    ['indy', 'indiana-jones'],
+    ['one piece', 'one-piece'],
+    ['fortnite', 'fortnite'],
+    ['minecraft', 'minecraft'],
+    ['pokemon', 'pokemon'],
+    ['overwatch', 'overwatch'],
+    ['stranger things', 'stranger-things'],
+    ['home alone', 'icons'],
+    ['seinfeld', 'icons'],
+    ['friends', 'friends'],
+    // Disney & sub-brands
+    ['disney', 'disney'],
+    ['mickey', 'disney'],
+    ['frozen', 'disney'],
+    ['ariel', 'disney'],
+    ['moana', 'disney'],
+    ['mulan', 'disney'],
+    ['rapunzel', 'disney'],
+    ['belle', 'disney'],
+    ['cinderella', 'disney'],
+    ['encanto', 'disney'],
+    ['coco', 'disney'],
+    ['princess', 'disney'],
+    ['arendelle', 'disney'],
+    ['maleficent', 'disney'],
+    ['elsa', 'disney'],
+    ['pixar', 'disney'],
+    ['toy story', 'disney'],
+    ['buzz lightyear', 'disney'],
+    ['lightyear', 'disney'],
+    ['nemo', 'disney'],
+    ['incredibles', 'disney'],
+    ['carsworld', 'disney'],
+    ['the lion king', 'disney'],
+    ['peter pan', 'disney'],
+    ['alice in wonderland', 'disney'],
+    ['sleeping beauty', 'disney'],
+    ['snow white', 'disney'],
+    ['little mermaid', 'disney'],
+    ['petite siren', 'disney'],
+    // LEGO themes
+    ['technic', 'technic'],
+    ['ninjago', 'ninjago'],
+    ['city', 'city'],
+    ['creator', 'creator'],
+    ['classic', 'classic'],
+    ['ideas', 'ideas'],
+    ['icons', 'icons'],
+    ['art', 'art'],
+    ['botanical', 'botanicals'],
+    ['botanicals', 'botanicals'],
+    ['orchid', 'botanicals'],
+    ['bouquet', 'botanicals'],
+    ['tulip', 'botanicals'],
+    ['bonsai', 'botanicals'],
+    ['flower', 'botanicals'],
+    ['architecture', 'architecture'],
+    ['duplo', 'duplo'],
+    ['super mario', 'super-mario'],
+    ['mario kart', 'super-mario'],
+    ['luigi', 'super-mario'],
+    ['piranha', 'super-mario'],
+    ['speed champions', 'speed-champions'],
+    ['formula 1', 'speed-champions'],
+    ['formula1', 'speed-champions'],
+    ['f1', 'speed-champions'],
+    ['ferrari', 'speed-champions'],
+    ['bugatti', 'speed-champions'],
+    ['mclaren', 'speed-champions'],
+    ['lamborghini', 'speed-champions'],
+    ['porsche', 'speed-champions'],
+    ['friends liann', 'friends'],
+    ['friends aliya', 'friends'],
+    ['friends autumn', 'friends'],
+    ['friends nova', 'friends'],
+    ['vidiyo', 'vidiyo'],
+    ['movie', 'movie'],
+    ['lego movie', 'movie'],
+    ['emmet', 'movie'],
+    ['batman movie', 'movie'],
+    ['jurassic', 'jurassic-world'],
+    ['jurassic world', 'jurassic-world'],
+    ['jurassic park', 'jurassic-world'],
+    ['dreamzzz', 'dreamzzz'],
+    ['monkie kid', 'monkie-kid'],
+    ['nexo knights', 'nexo-knights'],
+    ['chima', 'chima'],
+    ['bionicle', 'bionicle'],
+    ['dots', 'dots'],
+    ['hidden side', 'hidden-side'],
+    ['trolls', 'trolls'],
+    ['elves', 'elves'],
+    ['the lord of the rings', 'icons'],
+    ['seigneur des anneaux', 'icons'],
+    ['hobbit', 'icons'],
+    ['gondor', 'icons'],
+    ['barad', 'icons'],
+    ['lotr', 'icons'],
+    ['nasa', 'icons'],
+    ['artemis', 'icons'],
+    ['transformers', 'icons'],
+    ['bumblebee', 'icons'],
+    ['fast and furious', 'icons'],
+    ['fast furious', 'icons'],
+    ['notre.dame', 'icons'],
+    ['eiffel', 'icons'],
+    ['colosseum', 'icons'],
+    ['big ben', 'icons'],
+    ['le jardin', 'icons'],
+    ['chrysanth', 'botanicals'],
+    ['magnolia', 'botanicals'],
+    ['cerisiers', 'botanicals'],
+  ];
+
+  for (const [kw, franchise] of KEYWORDS) {
+    const re = new RegExp(kw, 'i');
+    if (re.test(text)) return franchise;
+  }
+  return null;
+}
+
+module.exports = { scrapeAll, guessFranchiseFromText };

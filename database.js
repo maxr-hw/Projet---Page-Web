@@ -29,6 +29,7 @@ function initSchema() {
       img_url       TEXT,
       description   TEXT,
       piece_url     TEXT,
+      retail_price  REAL,
       updated_at    INTEGER DEFAULT (strftime('%s','now'))
     );
 
@@ -98,6 +99,21 @@ function upsertSetsBulk(sets) {
     for (const row of rows) insert.run(row);
   });
   runAll(sets);
+}
+
+function upsertRetailPrice(setNum, retailPrice) {
+  getDb().prepare(`
+    UPDATE sets SET retail_price = ? WHERE set_num = ?
+  `).run(retailPrice, setNum);
+}
+
+function getSetsNeedingRetailPrice(limit = 50) {
+  return getDb().prepare(`
+    SELECT DISTINCT s.set_num FROM sets s
+    INNER JOIN deals d ON d.set_num = s.set_num
+    WHERE s.retail_price IS NULL
+    LIMIT ?
+  `).all(limit);
 }
 
 function getSet(setNum) {
@@ -175,6 +191,7 @@ function getDeals({ sort = 'deal', page = 1, limit = 24, franchise = 'all', q = 
   const sql = `
     SELECT 
       s.set_num, s.name, s.year, s.num_parts, s.theme_name, s.franchise, s.description,
+      s.retail_price,
       COALESCE(NULLIF(s.img_url, ''), 'https://images.brickset.com/sets/images/' || s.set_num || '.jpg') as img_url,
       d.price, d.original_price, d.discount_pct, d.source, d.source_url, d.id as deal_id,
       COALESCE(v.upvotes, 0) as upvotes,
@@ -273,5 +290,5 @@ function getFranchises() {
 module.exports = {
   getDb, upsertSet, upsertSetsBulk, getSet, upsertDeals, getDeals,
   getDealDetail, getSpotlightDeals, getStats, vote,
-  getFranchises, searchSets
+  getFranchises, searchSets, upsertRetailPrice, getSetsNeedingRetailPrice
 };

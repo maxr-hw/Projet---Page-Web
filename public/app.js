@@ -92,9 +92,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSearch();
   setupFilters();
   setupHeroControls();
-  setupHeroControls();
   setupRefresh();
   setupScroll();
+  setupStickyFilterBar();
 });
 
 // ---- Stats bar ----
@@ -384,6 +384,10 @@ function handleChipClick(chip, franchise) {
   const clearBtn = $('search-clear');
   if (input) input.value = '';
   if (clearBtn) clearBtn.hidden = true;
+
+  // Keep sticky bar sort in sync with main bar
+  const dfbChips = document.querySelectorAll('#dfb-chips .chip');
+  dfbChips.forEach(c => c.classList.toggle('active', c.dataset.franchise === franchise));
   
   loadDeals(true);
 }
@@ -537,11 +541,17 @@ function buildCard(set, spotlight = false) {
         ${set.year ? `<span>${set.year}</span>` : ''}
       </div>
       <div class="card-prices">
-        ${set.price ? `
-          <span class="card-price-now">${fmt(set.price)}</span>
-          ${set.original_price ? `<span class="card-price-was">${fmt(set.original_price)}</span>` : ''}
-          ${set.original_price && set.price ? `<span class="card-savings">−${saving(set.original_price, set.price)}</span>` : ''}
-        ` : `<span class="card-price-now" style="color:var(--text-muted); font-size: 1rem; font-weight: 500;">No active deals</span>`}
+        ${set.price ? (() => {
+          // Use scraped original_price OR official retail_price as the 'was' price
+          const wasPriceSrc = set.original_price || set.retail_price;
+          const wasLabel = !set.original_price && set.retail_price ? 'PPC' : null;
+          const savings = wasPriceSrc && set.price ? saving(wasPriceSrc, set.price) : null;
+          return `
+            <span class="card-price-now">${fmt(set.price)}</span>
+            ${wasPriceSrc ? `<span class="card-price-was" title="${wasLabel ? 'Prix public conseillé' : 'Prix d\'origine'}">${wasLabel ? `<span class="card-rrp-tag">PPC</span>` : ''}${fmt(wasPriceSrc)}</span>` : ''}
+            ${savings ? `<span class="card-savings">−${savings}</span>` : ''}
+          `;
+        })() : `<span class="card-price-now" style="color:var(--text-muted); font-size: 1rem; font-weight: 500;">No active deals</span>`}
       </div>
     </div>
     <div class="card-footer">
@@ -636,4 +646,50 @@ function setupRefresh() {
   };
   btn?.addEventListener('click', doRefresh);
   fBtn?.addEventListener('click', doRefresh);
+}
+// ---- Sticky filter bar (shown when user scrolls into #deals) ----
+function setupStickyFilterBar() {
+  const dealsSection = $('deals');
+  const bar = $('deals-filter-bar');
+  const dfbChipsEl = $('dfb-chips');
+  const dfbSort = $('dfb-sort');
+  const mainSort = $('sort-select');
+  if (!dealsSection || !bar) return;
+
+  // The sentinel we observe is the deals section HEADER (the h2 area)
+  // When it scrolls above the viewport, show the sticky bar
+  const sentinel = dealsSection.querySelector('.section-header') || dealsSection;
+
+  // Clone chips into the sticky bar whenever they are updated
+  function syncChips() {
+    const mainChips = document.querySelector('#filter-chips');
+    if (!mainChips || !dfbChipsEl) return;
+    dfbChipsEl.innerHTML = mainChips.innerHTML;
+    // Re-attach click listeners to the cloned chips
+    dfbChipsEl.querySelectorAll('.chip').forEach(chip => {
+      chip.addEventListener('click', () => handleChipClick(chip, chip.dataset.franchise));
+    });
+  }
+
+  // Sync sort selects bidirectionally
+  dfbSort?.addEventListener('change', () => {
+    state.currentSort = dfbSort.value;
+    if (mainSort) mainSort.value = dfbSort.value;
+    loadDeals(true);
+  });
+  mainSort?.addEventListener('change', () => {
+    if (dfbSort) dfbSort.value = mainSort.value;
+  });
+
+  // Observe the deals header sentinel
+  const observer = new IntersectionObserver(
+    ([entry]) => {
+      // Show bar when sentinel has scrolled OUT of view (above the top)
+      const shouldShow = !entry.isIntersecting && entry.boundingClientRect.top < 0;
+      bar.classList.toggle('visible', shouldShow);
+      if (shouldShow) syncChips();
+    },
+    { threshold: 0 }
+  );
+  observer.observe(sentinel);
 }
