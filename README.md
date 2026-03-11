@@ -2,7 +2,21 @@
 
 Lego Market is an aggregation website designed to help you find the best Lego deals online. It scrapes deals from multiple sources, including Dealabs, Vinted, and Avenue de la Brique, and cross-references them with a complete local catalog of Lego sets powered by the Rebrickable API.
 
-The platform automatically classifies deals by franchise (e.g., Star Wars, Harry Potter, Technic) and provides a clean, user-friendly interface to spot the best discounts and rarest finds.
+### 📸 Screenshots
+
+![Lego Market Dashboard](public/screenshots/main.png)
+*The main dashboard displaying Hot Deals, Franchises, and All Deals.*
+
+## ✨ What you can do (Features)
+
+- **Centralized Deal Aggregation:** Pulls Lego deals from Avenue de la Brique, Dealabs, and Vinted into one unified dashboard.
+- **Smart Franchise Categorization:** Automatically maps listings to popular franchises (e.g., Star Wars, Harry Potter, Technic) for easy browsing.
+- **Comprehensive Lego Catalog:** Syncs and stores over 25,000 Lego sets locally using the Rebrickable API, giving you instantly available detailed metadata about each set.
+- **Advanced Filtering and Sorting:** Sort your deals by the biggest discount, the best price, highest upvotes, or filter by specific Lego themes.
+- **Spotlight Deals:** Highlights the absolute best bargains in a dedicated "Too Good to Be True" section.
+- **Detailed Set Views:** View the details of a specific Lego set, including price comparisons, piece count, mini-figures, and historical background data.
+
+The platform provides a clean, user-friendly interface to spot the best discounts and rarest finds.
 
 ## 🛠️ How it was made
 
