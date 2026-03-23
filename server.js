@@ -236,14 +236,18 @@ app.get(/.*/, (req, res) => {
 
 // ---- Startup ----
 async function startup() {
-  // Init DB schema
-  await db.getDb();
-
-  // Start server first
-  app.listen(PORT, () => {
-    console.log(`\n🧱 Lego Market running on → http://localhost:${PORT}`);
-    console.log(`   Press Ctrl+C to stop\n`);
+  // Attempt DB connection in background
+  db.getDb().catch(err => {
+    console.error('[Startup] Critical: Failed to connect to MongoDB:', err.message);
   });
+
+  // Only listen if running directly (not in Vercel)
+  if (require.main === module) {
+    app.listen(PORT, () => {
+      console.log(`\n🧱 Lego Market running on → http://localhost:${PORT}`);
+      console.log(`   Press Ctrl+C to stop\n`);
+    });
+  }
 
   // Then run initial data seed (non-blocking)
   setImmediate(async () => {
@@ -267,3 +271,5 @@ async function startup() {
 }
 
 startup();
+
+module.exports = app;
