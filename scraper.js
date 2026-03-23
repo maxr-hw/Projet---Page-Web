@@ -186,9 +186,16 @@ async function scrapeDealabs({ name, url }) {
 
       const sourceUrl = `https://www.dealabs.com/bons-plans/${thread.titleSlug}-${thread.threadId}`;
 
-      // Extract image URL from the thread's <img> element
-      const imgEl = $(el).find('img.thread-image');
-      const imgUrl = imgEl.attr('src') || '';
+      // Extract image URL from the thread object (more reliable than DOM for axios)
+      let imgUrl = '';
+      if (thread.mainImage) {
+        const { path, name } = thread.mainImage;
+        imgUrl = `https://static-pepper.dealabs.com/${path}/${name}.jpg`;
+      } else {
+        // Fallback to DOM if JSON extraction failed
+        const imgEl = $(el).find('img.thread-image');
+        imgUrl = imgEl.attr('src') || '';
+      }
 
       // Ensure the set is in DB
       const existing = await db.getSet(setNum);
