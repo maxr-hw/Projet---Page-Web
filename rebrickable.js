@@ -187,7 +187,7 @@ async function seedFromRebrickable(upsertSet) {
         if (!set) continue;
         set.franchise = mapFranchise(theme.name);
         set.theme_name = theme.name;
-        await upsertSet(set);
+        upsertSet(set);
       }
       console.log(`[Rebrickable] ✓ ${sets.length} sets for ${theme.name}`);
     } catch (err) {

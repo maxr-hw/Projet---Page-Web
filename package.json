@@ -5,7 +5,6 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "scrape": "node -e \"(async () => { await require('./scraper').scrapeAll(); process.exit(0); })().catch(e => { console.error(e); process.exit(1); })\"",
     "dev": "node server.js"
   },
   "keywords": [],
@@ -14,13 +13,14 @@
   "type": "commonjs",
   "dependencies": {
     "axios": "^1.13.6",
-    "@libsql/client": "^0.6.0",
+    "better-sqlite3": "^12.6.2",
     "cheerio": "^1.2.0",
     "cors": "^2.8.6",
     "csv-parser": "^3.2.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "jimp": "^1.6.0",
+    "node-cron": "^4.2.1",
     "puppeteer": "^24.39.0"
   }
 }

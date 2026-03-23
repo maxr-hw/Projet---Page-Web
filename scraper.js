@@ -42,7 +42,7 @@ async function scrapeAll() {
   }
 
   if (allDeals.length > 0) {
-    await db.upsertDeals(allDeals);
+    db.upsertDeals(allDeals);
     console.log(`[Scraper] Saved ${allDeals.length} deals to DB`);
   }
 
@@ -66,10 +66,9 @@ async function scrapeAvenueDelaBrique({ name, url }) {
   const $ = cheerio.load(html);
   const deals = [];
 
-  // Convert to array to use for...of
-  const items = $('a[href*="/lego-"]').toArray();
-
-  for (const el of items) {
+  // Avenue de la Brique product listings – adapt selectors as needed
+  // They list items with set numbers, current price, and discount badge
+  $('a[href*="/lego-"]').each((_, el) => {
     const $el = $(el);
     const rawHref = $el.attr('href') || '';
     const href = rawHref.startsWith('http') ? rawHref : `https://www.avenuedelabrique.com${rawHref}`;
@@ -79,36 +78,39 @@ async function scrapeAvenueDelaBrique({ name, url }) {
     const imgDataSrc = $el.find('img').attr('data-src');
     let highResImgUrl = '';
     if (imgDataSrc) {
+      // transform: produits/123/thumbs/name_0x180.jpg -> https://www.avenuedelabrique.com/img/produits/123/name.jpg
       highResImgUrl = 'https://www.avenuedelabrique.com/img/' + imgDataSrc.replace('/thumbs/', '/').replace(/_\d+x\d+/, '');
     }
 
     // Extract set number (4-8 digit number inside the text)
     const setMatch = text.match(/\b(\d{4,8})\b/);
-    if (!setMatch) continue;
+    if (!setMatch) return;
     const rawSetNum = setMatch[1];
 
-    // Extract prices
+    // Extract prices from text blocks
     const priceMatches = text.match(/([\d,]+(?:\.\d+)?)\s*€/g);
-    if (!priceMatches || priceMatches.length < 1) continue;
+    if (!priceMatches || priceMatches.length < 1) return;
 
     const prices = priceMatches.map(p => parseFloat(p.replace(',', '.').replace('€', '').trim()));
     const currentPrice = Math.min(...prices);
-    if (currentPrice <= 0 || currentPrice > 5000) continue;
+    if (currentPrice <= 0 || currentPrice > 5000) return;
 
-    // Discount
+    // Look for discount badge
     const discountMatch = text.match(/-(\d+)%/);
     const discountPct = discountMatch ? -parseInt(discountMatch[1]) : null;
     const originalPrice = discountPct && discountPct < 0
       ? Math.round(currentPrice / (1 + discountPct / 100) * 100) / 100
       : null;
 
-    if (discountPct && discountPct >= 0) continue;
+    if (discountPct && discountPct >= 0) return; // skip non-deals
 
+    // Normalize set number (add -1 suffix if needed)
     const setNum = rawSetNum.includes('-') ? rawSetNum : `${rawSetNum}-1`;
 
-    const existing = await db.getSet(setNum);
+    // Ensure the set is in DB (seed minimal record if not)
+    const existing = db.getSet(setNum);
     if (!existing) {
-      await db.upsertSet({
+      db.upsertSet({
         set_num: setNum,
         name: extractName(text, rawSetNum),
         year: null,
@@ -121,7 +123,7 @@ async function scrapeAvenueDelaBrique({ name, url }) {
         piece_url: href,
       });
     } else if (!existing.img_url && highResImgUrl) {
-      await db.upsertSet({
+      db.upsertSet({
         ...existing,
         img_url: highResImgUrl,
         piece_url: existing.piece_url || href
@@ -136,9 +138,9 @@ async function scrapeAvenueDelaBrique({ name, url }) {
       original_price: originalPrice,
       discount_pct: discountPct,
     });
-  }
+  });
 
-  // Deduplicate
+  // Deduplicate by set_num, keep lowest price
   const map = new Map();
   for (const d of deals) {
     const existing = map.get(d.set_num);
@@ -159,23 +161,22 @@ async function scrapeDealabs({ name, url }) {
 
   const $ = cheerio.load(html);
   const deals = [];
-  const threads = $('[data-t="thread"]').toArray();
 
-  for (const el of threads) {
+  $('[data-t="thread"]').each((_, el) => {
     try {
       const vueDataStr = $(el).find('[data-vue3]').attr('data-vue3');
-      if (!vueDataStr) continue;
+      if (!vueDataStr) return;
       const thread = JSON.parse(vueDataStr).props.thread;
 
       const title = thread.title || '';
       const setMatch = title.match(/\b(\d{4,8})\b/);
-      if (!setMatch) continue;
+      if (!setMatch) return;
 
       const rawSetNum = setMatch[1];
       const setNum = rawSetNum.includes('-') ? rawSetNum : `${rawSetNum}-1`;
 
       const currentPrice = parseFloat(thread.price);
-      if (isNaN(currentPrice) || currentPrice <= 0) continue;
+      if (isNaN(currentPrice) || currentPrice <= 0) return;
 
       const originalPrice = thread.nextBestPrice ? parseFloat(thread.nextBestPrice) : null;
       let discountPct = null;
@@ -184,12 +185,15 @@ async function scrapeDealabs({ name, url }) {
       }
 
       const sourceUrl = `https://www.dealabs.com/bons-plans/${thread.titleSlug}-${thread.threadId}`;
+
+      // Extract image URL from the thread's <img> element
       const imgEl = $(el).find('img.thread-image');
       const imgUrl = imgEl.attr('src') || '';
 
-      const existing = await db.getSet(setNum);
+      // Ensure the set is in DB
+      const existing = db.getSet(setNum);
       if (!existing) {
-        await db.upsertSet({
+        db.upsertSet({
           set_num: setNum,
           name: title,
           year: null,
@@ -202,7 +206,7 @@ async function scrapeDealabs({ name, url }) {
           piece_url: sourceUrl,
         });
       } else if (!existing.img_url && imgUrl) {
-        await db.upsertSet({ ...existing, img_url: imgUrl });
+        db.upsertSet({ ...existing, img_url: imgUrl });
       }
 
       deals.push({
@@ -214,7 +218,7 @@ async function scrapeDealabs({ name, url }) {
         discount_pct: discountPct,
       });
     } catch (e) { }
-  }
+  });
 
   return deals;
 }
@@ -230,34 +234,42 @@ async function scrapeVinted({ name, url }) {
 
   const $ = cheerio.load(html);
   const deals = [];
-  const items = $('[data-testid^="product-item-id-"]').toArray();
 
-  for (const el of items) {
+  $('[data-testid^="product-item-id-"]').each((_, el) => {
+    // Vinted nests the same test-id on the wrapper and the image!
+    // We only want to process the wrapper that actually contains the root a-tag.
     const $a = $(el).find('a.new-item-box__overlay');
-    if ($a.length === 0 && !$(el).is('div.new-item-box__container, div.new-item-box__image-container')) continue;
 
+    // Skip internal elements that don't directly wrap the main link
+    if ($a.length === 0 && !$(el).is('div.new-item-box__container, div.new-item-box__image-container')) return;
+
+    // Try to get the specific piece URL or fallback to the wrapper href
     const href = $a.attr('href') || $(el).closest('a').attr('href') || $(el).find('a').attr('href') || url;
+
     const $img = $(el).find('img');
     const altText = $img.attr('alt') || $(el).closest('.new-item-box__container').find('img').attr('alt') || '';
 
-    if (!href.includes('/items/')) continue;
+    if (!href.includes('/items/')) return; // Ignore if it's inherently a bad link
 
+    // Find set number in alt text
     const setMatch = altText.match(/\b(\d{4,8})\b/);
-    if (!setMatch) continue;
+    if (!setMatch) return;
 
     const rawSetNum = setMatch[1];
     const setNum = rawSetNum.includes('-') ? rawSetNum : `${rawSetNum}-1`;
 
+    // Find price in alt text (e.g. 3,00 €)
     const priceMatch = altText.match(/([\d,]+)\s*€/);
-    if (!priceMatch) continue;
+    if (!priceMatch) return;
     const currentPrice = parseFloat(priceMatch[1].replace(',', '.'));
-    if (isNaN(currentPrice) || currentPrice <= 0) continue;
+    if (isNaN(currentPrice) || currentPrice <= 0) return;
 
-    const existing = await db.getSet(setNum);
+    // Ensure the set is in DB
+    const existing = db.getSet(setNum);
     if (!existing) {
       const itemName = altText.split(',')[0].trim() || `Vinted Set ${setNum}`;
       const detectedFranchise = guessFranchiseFromText(itemName, '') || 'other';
-      await db.upsertSet({
+      db.upsertSet({
         set_num: setNum,
         name: itemName,
         year: null,
@@ -279,7 +291,7 @@ async function scrapeVinted({ name, url }) {
       original_price: null,
       discount_pct: null,
     });
-  }
+  });
 
   return deals;
 }
@@ -287,7 +299,7 @@ async function scrapeVinted({ name, url }) {
 // ---- Retail Price Enrichment ----
 
 async function enrichRetailPrices() {
-  const sets = await db.getSetsNeedingRetailPrice(30);
+  const sets = db.getSetsNeedingRetailPrice(30);
   if (!sets.length) return;
   console.log(`[Scraper] Enriching retail prices for ${sets.length} sets...`);
 
@@ -305,24 +317,28 @@ async function enrichRetailPrices() {
       $('dl dt').each((_, dt) => {
         if ($(dt).text().trim() === 'RRP') {
           const ddText = $(dt).next('dd').text();
+          // e.g. "£149.99/$169.99/€169.99" -> extract EUR
           const eurMatch = ddText.match(/€([\d,]+(?:\.?\d+)?)/);
           if (eurMatch) rrp = parseFloat(eurMatch[1].replace(',', '.'));
         }
       });
 
       if (rrp) {
-        await db.upsertRetailPrice(set_num, rrp);
+        db.upsertRetailPrice(set_num, rrp);
         console.log(`[Scraper] ✓ RRP for ${set_num}: €${rrp}`);
       }
 
-      await delay(800);
-    } catch(e) { }
+      await delay(800); // be polite to Brickset
+    } catch(e) {
+      // silently skip, will retry next cycle
+    }
   }
 }
 
 // ---- Helpers ----
 
 function extractName(text, setNum) {
+  // Text is usually: "Set Name\n\tSETNUM\n\tPRICE €\n\t-XX%"
   const lines = text.split(/[\n\t]+/).map(l => l.trim()).filter(Boolean);
   const nameCandidate = lines.find(l => !l.match(/^[\d.]+\s*€?$/) && !l.match(/^-?\d+%$/) && l !== setNum);
   return nameCandidate || `LEGO Set ${setNum}`;
@@ -335,9 +351,17 @@ function guessThemeFromUrl(url) {
   return guessFranchiseFromText(slug, '') || slug.split(' ')[0];
 }
 
+/**
+ * Comprehensive keyword → franchise mapper.
+ * Checks set name + optional theme string for known LEGO universe keywords.
+ * Returns the mapped franchise slug, or null if no match.
+ */
 function guessFranchiseFromText(name, theme) {
   const text = `${name || ''} ${theme || ''}`.toLowerCase();
+
+  // Order matters: more specific first
   const KEYWORDS = [
+    // Licensed universes
     ['star wars', 'star-wars'],
     ['harry potter', 'harry-potter'],
     ['fantastic beasts', 'harry-potter'],
@@ -370,6 +394,7 @@ function guessFranchiseFromText(name, theme) {
     ['home alone', 'icons'],
     ['seinfeld', 'icons'],
     ['friends', 'friends'],
+    // Disney & sub-brands
     ['disney', 'disney'],
     ['mickey', 'disney'],
     ['frozen', 'disney'],
@@ -381,7 +406,7 @@ function guessFranchiseFromText(name, theme) {
     ['cinderella', 'disney'],
     ['encanto', 'disney'],
     ['coco', 'disney'],
-    ['playlist', 'disney'],
+    ['princess', 'disney'],
     ['arendelle', 'disney'],
     ['maleficent', 'disney'],
     ['elsa', 'disney'],
@@ -399,6 +424,7 @@ function guessFranchiseFromText(name, theme) {
     ['snow white', 'disney'],
     ['little mermaid', 'disney'],
     ['petite siren', 'disney'],
+    // LEGO themes
     ['technic', 'technic'],
     ['ninjago', 'ninjago'],
     ['city', 'city'],
