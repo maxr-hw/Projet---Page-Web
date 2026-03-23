@@ -634,15 +634,27 @@ function setupRefresh() {
   const btn   = $('refresh-btn');
   const fBtn  = $('footer-refresh');
   const doRefresh = async () => {
+    if (btn?.classList.contains('spinning')) return;
+    
     btn?.classList.add('spinning');
-    showToast('Refreshing data from sources…');
-    await api('/api/refresh');
-    setTimeout(async () => {
+    showToast('🚀 Running live scraper. This may take 15-30s…');
+    
+    try {
+      const result = await api('/api/scrape');
+      if (Array.isArray(result)) {
+        showToast(`✅ Scrape complete! Found ${result.length} deals.`);
+      } else {
+        showToast('⚠ Scrape completed with some issues.');
+      }
+    } catch (err) {
+      showToast('❌ Error during scrape.');
+    } finally {
       btn?.classList.remove('spinning');
+      // Refresh UI with latest data from DB
       await Promise.all([loadStats(), loadSpotlight(), loadDeals(true)]);
+      buildHero(); // rebuild hero since spotlight might have changed
       buildMarquee();
-      showToast('✅ Data refreshed!');
-    }, 3000);
+    }
   };
   btn?.addEventListener('click', doRefresh);
   fBtn?.addEventListener('click', doRefresh);

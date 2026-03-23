@@ -137,10 +137,10 @@ app.post('/api/vote/:setNum', (req, res) => {
   }
 });
 
-// GET /api/refresh – manually trigger a scrape + optional rebrickable seed
-app.get('/api/refresh', async (req, res) => {
+// GET /api/refresh – manually trigger a scrape + optional rebrickable seed in background
+app.get('/api/refresh', (req, res) => {
   try {
-    console.log('[API] Manual refresh triggered');
+    console.log('[API] Background refresh triggered');
     // Run scrape + sync catalog
     (async () => {
       try {
@@ -152,6 +152,18 @@ app.get('/api/refresh', async (req, res) => {
     })();
     res.json({ ok: true, message: 'Refresh started in background' });
   } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// GET /api/scrape – RUN the scraper and return the results directly
+app.get('/api/scrape', async (req, res) => {
+  try {
+    console.log('[API] Live scrape requested');
+    const deals = await scraper.scrapeAll();
+    res.json({ ok: true, count: deals.length, data: deals });
+  } catch (err) {
+    console.error('[API /scrape]', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
