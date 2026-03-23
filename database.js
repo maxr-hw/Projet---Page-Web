@@ -9,7 +9,13 @@ let db;
 
 async function getDb() {
   if (!db) {
-    client = new MongoClient(MONGODB_URI);
+    if (!MONGODB_URI || MONGODB_URI.includes('localhost')) {
+      console.warn('[DB] Using local/fallback MongoDB URI. Ensure MONGODB_URI is set in Vercel.');
+    }
+    client = new MongoClient(MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 5000,
+    });
     await client.connect();
     db = client.db(DB_NAME);
     await initSchema();

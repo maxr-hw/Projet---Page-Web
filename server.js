@@ -118,6 +118,7 @@ app.get('/api/spotlight', async (req, res) => {
     const deals = await db.getSpotlightDeals(6);
     res.json({ ok: true, data: deals });
   } catch (err) {
+    console.error(`[API] Error in ${req.path}:`, err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -153,6 +154,7 @@ app.get('/api/franchises', async (req, res) => {
     }));
     res.json({ ok: true, data: enriched });
   } catch (err) {
+    console.error(`[API] Error in ${req.path}:`, err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -165,6 +167,7 @@ app.get('/api/search', async (req, res) => {
     const results = await db.searchSets(q);
     res.json({ ok: true, data: results });
   } catch (err) {
+    console.error(`[API] Error in ${req.path}:`, err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -175,6 +178,7 @@ app.get('/api/stats', async (req, res) => {
     const stats = await db.getStats();
     res.json({ ok: true, data: stats });
   } catch (err) {
+    console.error(`[API] Error in ${req.path}:`, err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -189,6 +193,7 @@ app.post('/api/vote/:setNum', async (req, res) => {
     const result = await db.vote(req.params.setNum, direction);
     res.json({ ok: true, data: result });
   } catch (err) {
+    console.error(`[API] Error in ${req.path}:`, err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -208,6 +213,7 @@ app.get('/api/refresh', (req, res) => {
     })();
     res.json({ ok: true, message: 'Refresh started in background' });
   } catch (err) {
+    console.error(`[API] Error in ${req.path}:`, err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -234,7 +240,29 @@ app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ---- Startup ----
+// ---- Diagnostics ----
+app.get('/api/health', async (req, res) => {
+  try {
+    const d = await db.getDb();
+    const collections = await d.listCollections().toArray();
+    res.json({
+      status: 'ok',
+      database: 'connected',
+      collections: collections.length,
+      uri_prefix: process.env.MONGODB_URI ? process.env.MONGODB_URI.substring(0, 15) + '...' : 'not set'
+    });
+  } catch (err) {
+    console.error('[Health] DB error:', err.message);
+    res.status(500).json({
+      status: 'error',
+      database: 'failed',
+      error: err.message,
+      uri_set: !!process.env.MONGODB_URI
+    });
+  }
+});
+
+// ---- Static Data ----
 async function startup() {
   // Attempt DB connection in background
   db.getDb().catch(err => {
