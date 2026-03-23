@@ -7,7 +7,6 @@ const path      = require('path');
 const db        = require('./database');
 const catalog   = require('./catalog');
 const scraper   = require('./scraper');
-const scheduler = require('./scheduler');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -95,10 +94,10 @@ const FRANCHISE_META = {
 // ---- API Routes ----
 
 // GET /api/deals – paginated + filtered deal list
-app.get('/api/deals', (req, res) => {
+app.get('/api/deals', async (req, res) => {
   try {
     const { franchise, sort, page, limit, q } = req.query;
-    const items = db.getDeals({
+    const items = await db.getDeals({
       franchise: franchise || 'all',
       sort: sort || 'deal',
       page: parseInt(page) || 1,
@@ -112,10 +111,10 @@ app.get('/api/deals', (req, res) => {
   }
 });
 
-// GET /api/spotlight – best deals (too good to be true)
-app.get('/api/spotlight', (req, res) => {
+// GET /api/spotlight – best deals
+app.get('/api/spotlight', async (req, res) => {
   try {
-    const deals = db.getSpotlightDeals(6);
+    const deals = await db.getSpotlightDeals(6);
     res.json({ ok: true, data: deals });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -126,15 +125,10 @@ app.get('/api/spotlight', (req, res) => {
 app.get('/api/sets/:setNum', async (req, res) => {
   try {
     const setNum = req.params.setNum;
-    let detail   = db.getDealDetail(setNum);
-
-    if (!detail) {
-      // Return 404 immediately since catalog sync handles all ~25k sets offline now.
-    }
+    const detail = await db.getDealDetail(setNum);
 
     if (!detail) return res.status(404).json({ ok: false, error: 'Set not found' });
 
-    // Enrich with franchise metadata
     const meta = FRANCHISE_META[detail.franchise] || FRANCHISE_META['other'];
     res.json({ ok: true, data: { ...detail, ...meta } });
   } catch (err) {
@@ -144,9 +138,9 @@ app.get('/api/sets/:setNum', async (req, res) => {
 });
 
 // GET /api/franchises – franchise summary list
-app.get('/api/franchises', (req, res) => {
+app.get('/api/franchises', async (req, res) => {
   try {
-    const rows = db.getFranchises();
+    const rows = await db.getFranchises();
     const enriched = rows.map(r => ({
       ...r,
       ...(FRANCHISE_META[r.franchise] || FRANCHISE_META['other']),
@@ -158,11 +152,11 @@ app.get('/api/franchises', (req, res) => {
 });
 
 // GET /api/search?q=...
-app.get('/api/search', (req, res) => {
+app.get('/api/search', async (req, res) => {
   try {
     const q = req.query.q || '';
     if (q.length < 2) return res.json({ ok: true, data: [] });
-    const results = db.searchSets(q);
+    const results = await db.searchSets(q);
     res.json({ ok: true, data: results });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -170,55 +164,40 @@ app.get('/api/search', (req, res) => {
 });
 
 // GET /api/stats
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', async (req, res) => {
   try {
-    res.json({ ok: true, data: db.getStats() });
+    const stats = await db.getStats();
+    res.json({ ok: true, data: stats });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
 // POST /api/vote/:setNum { direction: 'up'|'down' }
-app.post('/api/vote/:setNum', (req, res) => {
+app.post('/api/vote/:setNum', async (req, res) => {
   try {
     const { direction } = req.body;
     if (!['up', 'down'].includes(direction)) {
       return res.status(400).json({ ok: false, error: 'direction must be up or down' });
     }
-    const result = db.vote(req.params.setNum, direction);
+    const result = await db.vote(req.params.setNum, direction);
     res.json({ ok: true, data: result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// GET /api/refresh – manually trigger a scrape + optional rebrickable seed in background
-app.get('/api/refresh', (req, res) => {
+// GET /api/refresh – manually trigger a scrape
+app.get('/api/refresh', async (req, res) => {
   try {
-    console.log('[API] Background refresh triggered');
-    // Run scrape + sync catalog
-    (async () => {
-      try {
-        await scraper.scrapeAll();
-        await catalog.syncCatalog();
-      } catch (e) {
-        console.error('[Refresh BG]', e.message);
-      }
-    })();
-    res.json({ ok: true, message: 'Refresh started in background' });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-// GET /api/scrape – RUN the scraper and return the results directly
-app.get('/api/scrape', async (req, res) => {
-  try {
-    console.log('[API] Live scrape requested');
+    console.log('[API] Live refresh/scrape requested');
+    // For serverless, we generally want to await the scrape during the request
+    // or use a background job trigger.
     const deals = await scraper.scrapeAll();
-    res.json({ ok: true, count: deals.length, data: deals });
+    await catalog.syncCatalog();
+    res.json({ ok: true, count: deals.length, message: 'Refresh complete' });
   } catch (err) {
-    console.error('[API /scrape]', err.message);
+    console.error('[API /refresh]', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -233,36 +212,17 @@ app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ---- Startup ----
-async function startup() {
-  // Init DB schema
-  db.getDb();
+// Export for Vercel
+module.exports = app;
 
-  // Start server first
-  app.listen(PORT, () => {
+// Local development server
+if (require.main === module) {
+  app.listen(PORT, async () => {
     console.log(`\n🧱 Lego Market running on → http://localhost:${PORT}`);
-    console.log(`   Press Ctrl+C to stop\n`);
-  });
-
-  // Then run initial data seed (non-blocking)
-  setImmediate(async () => {
-    try {
-      console.log('[Startup] Syncing catalog (if needed)...');
-      await catalog.syncCatalog();
-    } catch (e) {
-      console.warn('[Startup] Catalog sync error:', e.message);
-    }
     
+    // Initial sync
     try {
-      console.log('[Startup] Running initial deal scrape...');
-      await scraper.scrapeAll();
-    } catch (e) {
-      console.warn('[Startup] Scrape error:', e.message);
-    }
-
-    // Start scheduler
-    scheduler.startScheduler();
+      await catalog.syncCatalog();
+    } catch(e) {}
   });
 }
-
-startup();

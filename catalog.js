@@ -61,7 +61,7 @@ async function syncCatalog() {
     console.log('[Catalog] Checking if DB needs seeding...');
     
     // Check if we already have sets. If we have more than 1000, we probably don't need to reseed from scratch right now.
-    const stats = db.getStats();
+    const stats = await db.getStats();
     if (stats.totalSets > 1000) {
       console.log(`[Catalog] DB already populated (${stats.totalSets} sets). Skipping full CSV sync.`);
       return;
@@ -107,7 +107,7 @@ async function syncCatalog() {
     }
 
     console.log(`[Catalog] Inserting ${formattedSets.length} sets into SQLite (this might take a few seconds)...`);
-    db.upsertSetsBulk(formattedSets);
+    await db.upsertSetsBulk(formattedSets);
     console.log('[Catalog] ✅ Full catalog sync complete!');
 
   } catch (err) {
