@@ -42,7 +42,7 @@ async function scrapeAll() {
   }
 
   if (allDeals.length > 0) {
-    db.upsertDeals(allDeals);
+    await db.upsertDeals(allDeals);
     console.log(`[Scraper] Saved ${allDeals.length} deals to DB`);
   }
 
@@ -68,7 +68,7 @@ async function scrapeAvenueDelaBrique({ name, url }) {
 
   // Avenue de la Brique product listings – adapt selectors as needed
   // They list items with set numbers, current price, and discount badge
-  $('a[href*="/lego-"]').each((_, el) => {
+  for (const el of $('a[href*="/lego-"]').get()) {
     const $el = $(el);
     const rawHref = $el.attr('href') || '';
     const href = rawHref.startsWith('http') ? rawHref : `https://www.avenuedelabrique.com${rawHref}`;
@@ -84,16 +84,16 @@ async function scrapeAvenueDelaBrique({ name, url }) {
 
     // Extract set number (4-8 digit number inside the text)
     const setMatch = text.match(/\b(\d{4,8})\b/);
-    if (!setMatch) return;
+    if (!setMatch) continue;
     const rawSetNum = setMatch[1];
 
     // Extract prices from text blocks
     const priceMatches = text.match(/([\d,]+(?:\.\d+)?)\s*€/g);
-    if (!priceMatches || priceMatches.length < 1) return;
+    if (!priceMatches || priceMatches.length < 1) continue;
 
     const prices = priceMatches.map(p => parseFloat(p.replace(',', '.').replace('€', '').trim()));
     const currentPrice = Math.min(...prices);
-    if (currentPrice <= 0 || currentPrice > 5000) return;
+    if (currentPrice <= 0 || currentPrice > 5000) continue;
 
     // Look for discount badge
     const discountMatch = text.match(/-(\d+)%/);
@@ -102,15 +102,15 @@ async function scrapeAvenueDelaBrique({ name, url }) {
       ? Math.round(currentPrice / (1 + discountPct / 100) * 100) / 100
       : null;
 
-    if (discountPct && discountPct >= 0) return; // skip non-deals
+    if (discountPct && discountPct >= 0) continue; // skip non-deals
 
     // Normalize set number (add -1 suffix if needed)
     const setNum = rawSetNum.includes('-') ? rawSetNum : `${rawSetNum}-1`;
 
     // Ensure the set is in DB (seed minimal record if not)
-    const existing = db.getSet(setNum);
+    const existing = await db.getSet(setNum);
     if (!existing) {
-      db.upsertSet({
+      await db.upsertSet({
         set_num: setNum,
         name: extractName(text, rawSetNum),
         year: null,
@@ -123,7 +123,7 @@ async function scrapeAvenueDelaBrique({ name, url }) {
         piece_url: href,
       });
     } else if (!existing.img_url && highResImgUrl) {
-      db.upsertSet({
+      await db.upsertSet({
         ...existing,
         img_url: highResImgUrl,
         piece_url: existing.piece_url || href
@@ -138,7 +138,7 @@ async function scrapeAvenueDelaBrique({ name, url }) {
       original_price: originalPrice,
       discount_pct: discountPct,
     });
-  });
+  }
 
   // Deduplicate by set_num, keep lowest price
   const map = new Map();
@@ -162,21 +162,21 @@ async function scrapeDealabs({ name, url }) {
   const $ = cheerio.load(html);
   const deals = [];
 
-  $('[data-t="thread"]').each((_, el) => {
+  for (const el of $('[data-t="thread"]').get()) {
     try {
       const vueDataStr = $(el).find('[data-vue3]').attr('data-vue3');
-      if (!vueDataStr) return;
+      if (!vueDataStr) continue;
       const thread = JSON.parse(vueDataStr).props.thread;
 
       const title = thread.title || '';
       const setMatch = title.match(/\b(\d{4,8})\b/);
-      if (!setMatch) return;
+      if (!setMatch) continue;
 
       const rawSetNum = setMatch[1];
       const setNum = rawSetNum.includes('-') ? rawSetNum : `${rawSetNum}-1`;
 
       const currentPrice = parseFloat(thread.price);
-      if (isNaN(currentPrice) || currentPrice <= 0) return;
+      if (isNaN(currentPrice) || currentPrice <= 0) continue;
 
       const originalPrice = thread.nextBestPrice ? parseFloat(thread.nextBestPrice) : null;
       let discountPct = null;
@@ -191,9 +191,9 @@ async function scrapeDealabs({ name, url }) {
       const imgUrl = imgEl.attr('src') || '';
 
       // Ensure the set is in DB
-      const existing = db.getSet(setNum);
+      const existing = await db.getSet(setNum);
       if (!existing) {
-        db.upsertSet({
+        await db.upsertSet({
           set_num: setNum,
           name: title,
           year: null,
@@ -206,7 +206,7 @@ async function scrapeDealabs({ name, url }) {
           piece_url: sourceUrl,
         });
       } else if (!existing.img_url && imgUrl) {
-        db.upsertSet({ ...existing, img_url: imgUrl });
+        await db.upsertSet({ ...existing, img_url: imgUrl });
       }
 
       deals.push({
@@ -218,7 +218,7 @@ async function scrapeDealabs({ name, url }) {
         discount_pct: discountPct,
       });
     } catch (e) { }
-  });
+  }
 
   return deals;
 }
@@ -235,13 +235,13 @@ async function scrapeVinted({ name, url }) {
   const $ = cheerio.load(html);
   const deals = [];
 
-  $('[data-testid^="product-item-id-"]').each((_, el) => {
+  for (const el of $('[data-testid^="product-item-id-"]').get()) {
     // Vinted nests the same test-id on the wrapper and the image!
     // We only want to process the wrapper that actually contains the root a-tag.
     const $a = $(el).find('a.new-item-box__overlay');
 
     // Skip internal elements that don't directly wrap the main link
-    if ($a.length === 0 && !$(el).is('div.new-item-box__container, div.new-item-box__image-container')) return;
+    if ($a.length === 0 && !$(el).is('div.new-item-box__container, div.new-item-box__image-container')) continue;
 
     // Try to get the specific piece URL or fallback to the wrapper href
     const href = $a.attr('href') || $(el).closest('a').attr('href') || $(el).find('a').attr('href') || url;
@@ -249,27 +249,27 @@ async function scrapeVinted({ name, url }) {
     const $img = $(el).find('img');
     const altText = $img.attr('alt') || $(el).closest('.new-item-box__container').find('img').attr('alt') || '';
 
-    if (!href.includes('/items/')) return; // Ignore if it's inherently a bad link
+    if (!href.includes('/items/')) continue; // Ignore if it's inherently a bad link
 
     // Find set number in alt text
     const setMatch = altText.match(/\b(\d{4,8})\b/);
-    if (!setMatch) return;
+    if (!setMatch) continue;
 
     const rawSetNum = setMatch[1];
     const setNum = rawSetNum.includes('-') ? rawSetNum : `${rawSetNum}-1`;
 
     // Find price in alt text (e.g. 3,00 €)
     const priceMatch = altText.match(/([\d,]+)\s*€/);
-    if (!priceMatch) return;
+    if (!priceMatch) continue;
     const currentPrice = parseFloat(priceMatch[1].replace(',', '.'));
-    if (isNaN(currentPrice) || currentPrice <= 0) return;
+    if (isNaN(currentPrice) || currentPrice <= 0) continue;
 
     // Ensure the set is in DB
-    const existing = db.getSet(setNum);
+    const existing = await db.getSet(setNum);
     if (!existing) {
       const itemName = altText.split(',')[0].trim() || `Vinted Set ${setNum}`;
       const detectedFranchise = guessFranchiseFromText(itemName, '') || 'other';
-      db.upsertSet({
+      await db.upsertSet({
         set_num: setNum,
         name: itemName,
         year: null,
@@ -291,7 +291,7 @@ async function scrapeVinted({ name, url }) {
       original_price: null,
       discount_pct: null,
     });
-  });
+  }
 
   return deals;
 }
@@ -299,7 +299,7 @@ async function scrapeVinted({ name, url }) {
 // ---- Retail Price Enrichment ----
 
 async function enrichRetailPrices() {
-  const sets = db.getSetsNeedingRetailPrice(30);
+  const sets = await db.getSetsNeedingRetailPrice(30);
   if (!sets.length) return;
   console.log(`[Scraper] Enriching retail prices for ${sets.length} sets...`);
 
@@ -324,7 +324,7 @@ async function enrichRetailPrices() {
       });
 
       if (rrp) {
-        db.upsertRetailPrice(set_num, rrp);
+        await db.upsertRetailPrice(set_num, rrp);
         console.log(`[Scraper] ✓ RRP for ${set_num}: €${rrp}`);
       }
 

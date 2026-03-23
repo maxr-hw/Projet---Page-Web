@@ -1,290 +1,475 @@
 'use strict';
-const Database = require('better-sqlite3');
-const path = require('path');
+const { MongoClient } = require('mongodb');
 
-const DB_PATH = path.join(__dirname, 'legomarket.db');
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/legomarket';
+const DB_NAME = MONGODB_URI.split('/').pop().split('?')[0] || 'legomarket';
 
+let client;
 let db;
 
-function getDb() {
+async function getDb() {
   if (!db) {
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    initSchema();
+    client = new MongoClient(MONGODB_URI);
+    await client.connect();
+    db = client.db(DB_NAME);
+    await initSchema();
   }
   return db;
 }
 
-function initSchema() {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS sets (
-      set_num       TEXT PRIMARY KEY,
-      name          TEXT NOT NULL,
-      year          INTEGER,
-      num_parts     INTEGER,
-      theme_id      INTEGER,
-      theme_name    TEXT,
-      franchise     TEXT,
-      img_url       TEXT,
-      description   TEXT,
-      piece_url     TEXT,
-      retail_price  REAL,
-      updated_at    INTEGER DEFAULT (strftime('%s','now'))
-    );
+async function initSchema() {
+  const d = db || await getDb();
+  
+  // Sets: _id is set_num
+  const sets = d.collection('sets');
+  await sets.createIndex({ franchise: 1 });
+  await sets.createIndex({ name: 1 });
 
-    CREATE TABLE IF NOT EXISTS deals (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      set_num       TEXT NOT NULL,
-      source        TEXT NOT NULL,
-      source_url    TEXT,
-      price         REAL NOT NULL,
-      original_price REAL,
-      discount_pct  INTEGER,
-      scraped_at    INTEGER DEFAULT (strftime('%s','now')),
-      FOREIGN KEY (set_num) REFERENCES sets(set_num) ON DELETE CASCADE
-    );
+  // Deals: many per set_num
+  const deals = d.collection('deals');
+  await deals.createIndex({ set_num: 1 });
+  await deals.createIndex({ discount_pct: 1 });
 
-    CREATE TABLE IF NOT EXISTS votes (
-      set_num       TEXT PRIMARY KEY,
-      upvotes       INTEGER DEFAULT 0,
-      downvotes     INTEGER DEFAULT 0
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_deals_set_num ON deals(set_num);
-    CREATE INDEX IF NOT EXISTS idx_deals_discount ON deals(discount_pct);
-    CREATE INDEX IF NOT EXISTS idx_sets_franchise ON sets(franchise);
-    CREATE INDEX IF NOT EXISTS idx_sets_name ON sets(name);
-  `);
+  // Votes: _id is set_num
+  const votes = d.collection('votes');
 }
 
 // ---- Sets ----
 
-function upsertSet(set) {
-  const d = getDb();
-  d.prepare(`
-    INSERT INTO sets (set_num, name, year, num_parts, theme_id, theme_name, franchise, img_url, description, piece_url, updated_at)
-    VALUES (@set_num, @name, @year, @num_parts, @theme_id, @theme_name, @franchise, @img_url, @description, @piece_url, strftime('%s','now'))
-    ON CONFLICT(set_num) DO UPDATE SET
-      name        = excluded.name,
-      year        = excluded.year,
-      num_parts   = excluded.num_parts,
-      theme_id    = excluded.theme_id,
-      theme_name  = excluded.theme_name,
-      franchise   = excluded.franchise,
-      img_url     = excluded.img_url,
-      description = excluded.description,
-      piece_url   = excluded.piece_url,
-      updated_at  = excluded.updated_at
-  `).run(set);
+async function upsertSet(set) {
+  const d = await getDb();
+  const setNum = set.set_num;
+  const updateData = { ...set, updated_at: Math.floor(Date.now() / 1000) };
+  delete updateData.set_num;
+
+  await d.collection('sets').updateOne(
+    { _id: setNum },
+    { $set: updateData },
+    { upsert: true }
+  );
 }
 
-function upsertSetsBulk(sets) {
-  const d = getDb();
-  const insert = d.prepare(`
-    INSERT INTO sets (set_num, name, year, num_parts, theme_id, theme_name, franchise, img_url, updated_at)
-    VALUES (@set_num, @name, @year, @num_parts, @theme_id, @theme_name, @franchise, @img_url, strftime('%s','now'))
-    ON CONFLICT(set_num) DO UPDATE SET
-      name        = excluded.name,
-      year        = excluded.year,
-      num_parts   = excluded.num_parts,
-      theme_id    = excluded.theme_id,
-      theme_name  = excluded.theme_name,
-      franchise   = excluded.franchise,
-      img_url     = excluded.img_url,
-      updated_at  = excluded.updated_at
-  `);
+async function upsertSetsBulk(sets) {
+  const d = await getDb();
+  if (!sets.length) return;
 
-  const runAll = d.transaction((rows) => {
-    for (const row of rows) insert.run(row);
-  });
-  runAll(sets);
+  const ops = sets.map(s => ({
+    updateOne: {
+      filter: { _id: s.set_num },
+      update: { $set: { ...s, updated_at: Math.floor(Date.now() / 1000) } },
+      upsert: true
+    }
+  }));
+
+  await d.collection('sets').bulkWrite(ops);
 }
 
-function upsertRetailPrice(setNum, retailPrice) {
-  getDb().prepare(`
-    UPDATE sets SET retail_price = ? WHERE set_num = ?
-  `).run(retailPrice, setNum);
+async function upsertRetailPrice(setNum, retailPrice) {
+  const d = await getDb();
+  await d.collection('sets').updateOne(
+    { _id: setNum },
+    { $set: { retail_price: retailPrice } }
+  );
 }
 
-function getSetsNeedingRetailPrice(limit = 50) {
-  return getDb().prepare(`
-    SELECT DISTINCT s.set_num FROM sets s
-    INNER JOIN deals d ON d.set_num = s.set_num
-    WHERE s.retail_price IS NULL
-    LIMIT ?
-  `).all(limit);
+async function getSetsNeedingRetailPrice(limit = 50) {
+  const d = await getDb();
+  // Find sets with no retail price that have deals
+  const setNumsWithDeals = await d.collection('deals').distinct('set_num');
+  return d.collection('sets')
+    .find({ _id: { $in: setNumsWithDeals }, retail_price: null })
+    .limit(limit)
+    .project({ _id: 1 })
+    .toArray()
+    .then(rows => rows.map(r => ({ set_num: r._id })));
 }
 
-function getSet(setNum) {
-  return getDb().prepare('SELECT * FROM sets WHERE set_num = ?').get(setNum);
+async function getSet(setNum) {
+  const d = await getDb();
+  const res = await d.collection('sets').findOne({ _id: setNum });
+  if (res) res.set_num = res._id;
+  return res;
 }
 
-function searchSets(q) {
-  const like = `%${q}%`;
-  return getDb().prepare(`
-    SELECT s.set_num, s.name, s.theme_name, s.num_parts,
-           COALESCE(s.img_url, 'https://images.brickset.com/sets/images/' || s.set_num || '.jpg') as img_url,
-           d.price, d.original_price, d.discount_pct, d.source, d.source_url,
-           v.upvotes, v.downvotes
-    FROM sets s
-    LEFT JOIN deals d ON d.set_num = s.set_num AND d.id = (
-      SELECT id FROM deals WHERE set_num = s.set_num ORDER BY price ASC LIMIT 1
-    )
-    LEFT JOIN votes v ON v.set_num = s.set_num
-    WHERE s.name LIKE ? OR s.set_num LIKE ? OR s.theme_name LIKE ? OR s.franchise LIKE ?
-    LIMIT 40
-  `).all(like, like, like, like);
+async function searchSets(q) {
+  const d = await getDb();
+  const regex = new RegExp(q, 'i');
+  
+  // Use aggregation to join with best deal
+  const pipeline = [
+    {
+      $match: {
+        $or: [
+          { name: regex },
+          { _id: regex },
+          { theme_name: regex },
+          { franchise: regex }
+        ]
+      }
+    },
+    { $limit: 40 },
+    {
+      $lookup: {
+        from: 'deals',
+        let: { set_num: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$set_num', '$$set_num'] } } },
+          { $sort: { price: 1 } },
+          { $limit: 1 }
+        ],
+        as: 'best_deal'
+      }
+    },
+    { $unwind: { path: '$best_deal', preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: 'votes',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'vote_data'
+      }
+    },
+    { $unwind: { path: '$vote_data', preserveNullAndEmptyArrays: true } },
+    {
+      $project: {
+        set_num: '$_id',
+        name: 1,
+        theme_name: 1,
+        num_parts: 1,
+        img_url: { $ifNull: ['$img_url', { $concat: ['https://images.brickset.com/sets/images/', '$_id', '.jpg'] }] },
+        price: '$best_deal.price',
+        original_price: '$best_deal.original_price',
+        discount_pct: '$best_deal.discount_pct',
+        source: '$best_deal.source',
+        source_url: '$best_deal.source_url',
+        upvotes: { $ifNull: ['$vote_data.upvotes', 0] },
+        downvotes: { $ifNull: ['$vote_data.downvotes', 0] }
+      }
+    }
+  ];
+
+  return d.collection('sets').aggregate(pipeline).toArray();
 }
 
 // ---- Deals ----
 
-function upsertDeals(deals) {
-  const d = getDb();
-  const insert = d.prepare(`
-    INSERT INTO deals (set_num, source, source_url, price, original_price, discount_pct, scraped_at)
-    VALUES (@set_num, @source, @source_url, @price, @original_price, @discount_pct, strftime('%s','now'))
-  `);
-  const deleteOld = d.prepare('DELETE FROM deals WHERE set_num = ? AND source = ?');
+async function upsertDeals(deals) {
+  const d = await getDb();
+  if (!deals.length) return;
 
-  const runAll = d.transaction((rows) => {
-    for (const row of rows) {
-      deleteOld.run(row.set_num, row.source);
-      insert.run(row);
-    }
-  });
-  runAll(deals);
+  const ops = [];
+  // For each deal, remove existing one from same source and insert new one
+  // In SQLite it was a transaction: delete then insert.
+  // In MongoDB we can use bulkWrite or just deleteMany then insertMany.
+  
+  // Unique set_num/source pairs
+  const pairs = deals.map(d => ({ set_num: d.set_num, source: d.source }));
+  
+  const bulkOps = [];
+  for (const deal of deals) {
+    // Delete existing
+    bulkOps.push({
+      deleteMany: {
+        filter: { set_num: deal.set_num, source: deal.source }
+      }
+    });
+    // Add new
+    bulkOps.push({
+      insertOne: {
+        document: { ...deal, scraped_at: Math.floor(Date.now() / 1000) }
+      }
+    });
+  }
+  
+  await d.collection('deals').bulkWrite(bulkOps);
 }
 
-function getDeals({ sort = 'deal', page = 1, limit = 24, franchise = 'all', q = '' } = {}) {
-  const where = [];
-  const params = [];
+async function getDeals({ sort = 'deal', page = 1, limit = 24, franchise = 'all', q = '' } = {}) {
+  const d = await getDb();
+  const match = {};
 
   if (franchise && franchise !== 'all') {
-    where.push('s.franchise = ?');
-    params.push(franchise);
+    match.franchise = franchise;
   }
 
   if (q && q.trim().length > 0) {
-    const term = `%${q.trim()}%`;
-    where.push('(s.name LIKE ? OR s.set_num LIKE ? OR s.theme_name LIKE ? OR s.franchise LIKE ?)');
-    params.push(term, term, term, term);
+    const term = new RegExp(q.trim(), 'i');
+    match.$or = [
+      { name: term },
+      { _id: term },
+      { theme_name: term },
+      { franchise: term }
+    ];
   }
-
-  if (where.length === 0) {
-    where.push('1=1');
-  }
-
-  // Ensure deals appear first before catalog items without deals
-  const orderMap = {
-    deal:       'CASE WHEN d.id IS NULL THEN 1 ELSE 0 END ASC, d.discount_pct ASC',
-    discount:   'CASE WHEN d.id IS NULL THEN 1 ELSE 0 END ASC, d.discount_pct ASC',
-    'price-asc': 'CASE WHEN d.id IS NULL THEN 1 ELSE 0 END ASC, d.price ASC',
-    'price-desc':'CASE WHEN d.id IS NULL THEN 1 ELSE 0 END ASC, d.price DESC',
-    hot:        'CASE WHEN d.id IS NULL THEN 1 ELSE 0 END ASC, (COALESCE(v.upvotes,0) - COALESCE(v.downvotes,0)) DESC',
-    newest:     's.year DESC',
-  };
-  const order = orderMap[sort] || orderMap['deal'];
 
   const offset = (page - 1) * limit;
 
-  const sql = `
-    SELECT 
-      s.set_num, s.name, s.year, s.num_parts, s.theme_name, s.franchise, s.description,
-      s.retail_price,
-      COALESCE(NULLIF(s.img_url, ''), 'https://images.brickset.com/sets/images/' || s.set_num || '.jpg') as img_url,
-      d.price, d.original_price, d.discount_pct, d.source, d.source_url, d.id as deal_id,
-      COALESCE(v.upvotes, 0) as upvotes,
-      COALESCE(v.downvotes, 0) as downvotes
-    FROM sets s
-    LEFT JOIN deals d ON d.set_num = s.set_num AND d.id = (
-      SELECT id FROM deals WHERE set_num = s.set_num ORDER BY price ASC LIMIT 1
-    )
-    LEFT JOIN votes v ON v.set_num = s.set_num
-    WHERE ${where.join(' AND ')}
-    ORDER BY ${order}
-    LIMIT ? OFFSET ?
-  `;
+  // Sorting logic
+  let sortObj = {};
+  switch (sort) {
+    case 'discount':
+    case 'deal':
+      sortObj = { has_deal: 1, discount_pct: 1 }; // has_deal ASC (0 first), discount_pct ASC
+      break;
+    case 'price-asc':
+      sortObj = { has_deal: 1, price: 1 };
+      break;
+    case 'price-desc':
+      sortObj = { has_deal: 1, price: -1 };
+      break;
+    case 'hot':
+      sortObj = { has_deal: 1, score: -1 };
+      break;
+    case 'newest':
+      sortObj = { year: -1 };
+      break;
+    default:
+      sortObj = { has_deal: 1, discount_pct: 1 };
+  }
 
-  params.push(limit, offset);
-  return getDb().prepare(sql).all(...params);
+  const pipeline = [
+    { $match: match },
+    {
+      $lookup: {
+        from: 'deals',
+        let: { set_num: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$set_num', '$$set_num'] } } },
+          { $sort: { price: 1 } },
+          { $limit: 1 }
+        ],
+        as: 'best_deal'
+      }
+    },
+    { $unwind: { path: '$best_deal', preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: 'votes',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'vote_data'
+      }
+    },
+    { $unwind: { path: '$vote_data', preserveNullAndEmptyArrays: true } },
+    {
+      $addFields: {
+        has_deal: { $cond: [{ $ifNull: ['$best_deal.price', false] }, 0, 1] },
+        score: { $subtract: [{ $ifNull: ['$vote_data.upvotes', 0] }, { $ifNull: ['$vote_data.downvotes', 0] }] }
+      }
+    },
+    { $sort: sortObj },
+    { $skip: offset },
+    { $limit: limit },
+    {
+      $project: {
+        set_num: '$_id',
+        name: 1,
+        year: 1,
+        num_parts: 1,
+        theme_name: 1,
+        franchise: 1,
+        description: 1,
+        retail_price: 1,
+        img_url: { $ifNull: ['$img_url', { $concat: ['https://images.brickset.com/sets/images/', '$_id', '.jpg'] }] },
+        price: '$best_deal.price',
+        original_price: '$best_deal.original_price',
+        discount_pct: '$best_deal.discount_pct',
+        source: '$best_deal.source',
+        source_url: '$best_deal.source_url',
+        deal_id: '$best_deal._id',
+        upvotes: { $ifNull: ['$vote_data.upvotes', 0] },
+        downvotes: { $ifNull: ['$vote_data.downvotes', 0] }
+      }
+    }
+  ];
+
+  return d.collection('sets').aggregate(pipeline).toArray();
 }
 
-function getDealDetail(setNum) {
-  const set = getDb().prepare(`
-    SELECT s.set_num, s.name, s.year, s.num_parts, s.theme_id, s.theme_name, s.franchise, s.description, s.piece_url, s.updated_at,
-           COALESCE(NULLIF(s.img_url, ''), 'https://images.brickset.com/sets/images/' || s.set_num || '.jpg') as img_url,
-           COALESCE(v.upvotes,0) as upvotes, COALESCE(v.downvotes,0) as downvotes
-    FROM sets s LEFT JOIN votes v ON v.set_num = s.set_num
-    WHERE s.set_num = ?
-  `).get(setNum);
+async function getDealDetail(setNum) {
+  const d = await getDb();
+  
+  const pipeline = [
+    { $match: { _id: setNum } },
+    {
+      $lookup: {
+        from: 'votes',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'vote_data'
+      }
+    },
+    { $unwind: { path: '$vote_data', preserveNullAndEmptyArrays: true } },
+    {
+      $project: {
+        set_num: '$_id',
+        name: 1,
+        year: 1,
+        num_parts: 1,
+        theme_id: 1,
+        theme_name: 1,
+        franchise: 1,
+        description: 1,
+        piece_url: 1,
+        updated_at: 1,
+        img_url: { $ifNull: ['$img_url', { $concat: ['https://images.brickset.com/sets/images/', '$_id', '.jpg'] }] },
+        upvotes: { $ifNull: ['$vote_data.upvotes', 0] },
+        downvotes: { $ifNull: ['$vote_data.downvotes', 0] }
+      }
+    }
+  ];
 
+  const results = await d.collection('sets').aggregate(pipeline).toArray();
+  const set = results[0];
   if (!set) return null;
 
-  const deals = getDb().prepare(`
-    SELECT * FROM deals WHERE set_num = ? ORDER BY price ASC
-  `).all(setNum);
-
+  const deals = await d.collection('deals').find({ set_num: setNum }).sort({ price: 1 }).toArray();
   return { ...set, deals };
 }
 
-function getSpotlightDeals(limit = 4) {
-  return getDb().prepare(`
-    SELECT 
-      s.set_num, s.name, s.year, s.num_parts, s.theme_name, s.franchise, s.description,
-      COALESCE(NULLIF(s.img_url, ''), 'https://images.brickset.com/sets/images/' || s.set_num || '.jpg') as img_url,
-      d.price, d.original_price, d.discount_pct, d.source, d.source_url,
-      COALESCE(v.upvotes,0) as upvotes, COALESCE(v.downvotes,0) as downvotes
-    FROM sets s
-    INNER JOIN deals d ON d.set_num = s.set_num AND d.id = (
-      SELECT id FROM deals WHERE set_num = s.set_num ORDER BY price ASC LIMIT 1
-    )
-    LEFT JOIN votes v ON v.set_num = s.set_num
-    WHERE d.discount_pct <= -50 OR d.original_price >= 100 OR d.price <= 20
-    ORDER BY CASE WHEN d.discount_pct <= -50 THEN 0 ELSE 1 END ASC, d.discount_pct ASC
-    LIMIT ?
-  `).all(limit);
+async function getSpotlightDeals(limit = 4) {
+  const d = await getDb();
+  
+  const pipeline = [
+    {
+      $lookup: {
+        from: 'deals',
+        let: { set_num: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$set_num', '$$set_num'] } } },
+          { $sort: { price: 1 } },
+          { $limit: 1 }
+        ],
+        as: 'best_deal'
+      }
+    },
+    { $unwind: '$best_deal' },
+    {
+      $match: {
+        $or: [
+          { 'best_deal.discount_pct': { $lte: -50 } },
+          { 'best_deal.original_price': { $gte: 100 } },
+          { 'best_deal.price': { $lte: 20 } }
+        ]
+      }
+    },
+    {
+      $lookup: {
+        from: 'votes',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'vote_data'
+      }
+    },
+    { $unwind: { path: '$vote_data', preserveNullAndEmptyArrays: true } },
+    {
+      $sort: {
+        'best_deal.discount_pct': 1
+      }
+    },
+    { $limit: limit },
+    {
+      $project: {
+        set_num: '$_id',
+        name: 1,
+        year: 1,
+        num_parts: 1,
+        theme_name: 1,
+        franchise: 1,
+        description: 1,
+        img_url: { $ifNull: ['$img_url', { $concat: ['https://images.brickset.com/sets/images/', '$_id', '.jpg'] }] },
+        price: '$best_deal.price',
+        original_price: '$best_deal.original_price',
+        discount_pct: '$best_deal.discount_pct',
+        source: '$best_deal.source',
+        source_url: '$best_deal.source_url',
+        upvotes: { $ifNull: ['$vote_data.upvotes', 0] },
+        downvotes: { $ifNull: ['$vote_data.downvotes', 0] }
+      }
+    }
+  ];
+
+  return d.collection('sets').aggregate(pipeline).toArray();
 }
 
-function getStats() {
-  const d = getDb();
-  const totalSets  = d.prepare('SELECT COUNT(*) as n FROM sets').get().n;
-  const totalDeals = d.prepare('SELECT COUNT(*) as n FROM deals').get().n;
-  const avgDiscount = d.prepare('SELECT AVG(discount_pct) as a FROM deals').get().a;
-  const bestDeal   = d.prepare(`
-    SELECT s.name, d.discount_pct FROM deals d
-    JOIN sets s ON s.set_num = d.set_num
-    ORDER BY d.discount_pct ASC LIMIT 1
-  `).get();
+async function getStats() {
+  const d = await getDb();
+  const totalSets = await d.collection('sets').countDocuments();
+  const totalDeals = await d.collection('deals').countDocuments();
+  
+  const avgDiscountRes = await d.collection('deals').aggregate([
+    { $group: { _id: null, avg: { $avg: '$discount_pct' } } }
+  ]).toArray();
+  const avgDiscount = avgDiscountRes.length ? avgDiscountRes[0].avg : 0;
+
+  const bestDealRes = await d.collection('deals').aggregate([
+    { $sort: { discount_pct: 1 } },
+    { $limit: 1 },
+    {
+      $lookup: {
+        from: 'sets',
+        localField: 'set_num',
+        foreignField: '_id',
+        as: 'set'
+      }
+    },
+    { $unwind: '$set' },
+    { $project: { name: '$set.name', discount_pct: 1 } }
+  ]).toArray();
+  const bestDeal = bestDealRes[0] || null;
+
   return { totalSets, totalDeals, avgDiscount: Math.round(avgDiscount || 0), bestDeal };
 }
 
 // ---- Votes ----
 
-function vote(setNum, direction) {
-  const d = getDb();
-  d.prepare(`
-    INSERT INTO votes (set_num, upvotes, downvotes) VALUES (?, 0, 0)
-    ON CONFLICT(set_num) DO NOTHING
-  `).run(setNum);
+async function vote(setNum, direction) {
+  const d = await getDb();
+  
+  const update = direction === 'up' ? { $inc: { upvotes: 1 } } : { $inc: { downvotes: 1 } };
+  
+  // Upsert initial vote logic
+  await d.collection('votes').updateOne(
+    { _id: setNum },
+    { $setOnInsert: { upvotes: 0, downvotes: 0 } },
+    { upsert: true }
+  );
 
-  if (direction === 'up') {
-    d.prepare('UPDATE votes SET upvotes = upvotes + 1 WHERE set_num = ?').run(setNum);
-  } else {
-    d.prepare('UPDATE votes SET downvotes = downvotes + 1 WHERE set_num = ?').run(setNum);
-  }
-  return d.prepare('SELECT * FROM votes WHERE set_num = ?').get(setNum);
+  await d.collection('votes').updateOne(
+    { _id: setNum },
+    update
+  );
+
+  const res = await d.collection('votes').findOne({ _id: setNum });
+  return { ...res, set_num: res._id };
 }
 
-function getFranchises() {
-  return getDb().prepare(`
-    SELECT franchise, COUNT(*) as count, MIN(d.discount_pct) as best_discount
-    FROM sets s
-    INNER JOIN deals d ON d.set_num = s.set_num
-    WHERE franchise IS NOT NULL AND franchise != ''
-    GROUP BY franchise
-    ORDER BY count DESC
-  `).all();
+async function getFranchises() {
+  const d = await getDb();
+  
+  const pipeline = [
+    {
+      $lookup: {
+        from: 'deals',
+        localField: '_id',
+        foreignField: 'set_num',
+        as: 'deals'
+      }
+    },
+    { $unwind: '$deals' },
+    { $match: { franchise: { $ne: null, $ne: '' } } },
+    {
+      $group: {
+        _id: '$franchise',
+        count: { $sum: 1 },
+        best_discount: { $min: '$deals.discount_pct' }
+      }
+    },
+    { $sort: { count: -1 } },
+    { $project: { franchise: '$_id', count: 1, best_discount: 1, _id: 0 } }
+  ];
+
+  return d.collection('sets').aggregate(pipeline).toArray();
 }
 
 module.exports = {

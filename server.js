@@ -95,10 +95,10 @@ const FRANCHISE_META = {
 // ---- API Routes ----
 
 // GET /api/deals – paginated + filtered deal list
-app.get('/api/deals', (req, res) => {
+app.get('/api/deals', async (req, res) => {
   try {
     const { franchise, sort, page, limit, q } = req.query;
-    const items = db.getDeals({
+    const items = await db.getDeals({
       franchise: franchise || 'all',
       sort: sort || 'deal',
       page: parseInt(page) || 1,
@@ -113,9 +113,9 @@ app.get('/api/deals', (req, res) => {
 });
 
 // GET /api/spotlight – best deals (too good to be true)
-app.get('/api/spotlight', (req, res) => {
+app.get('/api/spotlight', async (req, res) => {
   try {
-    const deals = db.getSpotlightDeals(6);
+    const deals = await db.getSpotlightDeals(6);
     res.json({ ok: true, data: deals });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -126,7 +126,7 @@ app.get('/api/spotlight', (req, res) => {
 app.get('/api/sets/:setNum', async (req, res) => {
   try {
     const setNum = req.params.setNum;
-    let detail   = db.getDealDetail(setNum);
+    let detail   = await db.getDealDetail(setNum);
 
     if (!detail) {
       // Return 404 immediately since catalog sync handles all ~25k sets offline now.
@@ -144,9 +144,9 @@ app.get('/api/sets/:setNum', async (req, res) => {
 });
 
 // GET /api/franchises – franchise summary list
-app.get('/api/franchises', (req, res) => {
+app.get('/api/franchises', async (req, res) => {
   try {
-    const rows = db.getFranchises();
+    const rows = await db.getFranchises();
     const enriched = rows.map(r => ({
       ...r,
       ...(FRANCHISE_META[r.franchise] || FRANCHISE_META['other']),
@@ -158,11 +158,11 @@ app.get('/api/franchises', (req, res) => {
 });
 
 // GET /api/search?q=...
-app.get('/api/search', (req, res) => {
+app.get('/api/search', async (req, res) => {
   try {
     const q = req.query.q || '';
     if (q.length < 2) return res.json({ ok: true, data: [] });
-    const results = db.searchSets(q);
+    const results = await db.searchSets(q);
     res.json({ ok: true, data: results });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -170,22 +170,23 @@ app.get('/api/search', (req, res) => {
 });
 
 // GET /api/stats
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', async (req, res) => {
   try {
-    res.json({ ok: true, data: db.getStats() });
+    const stats = await db.getStats();
+    res.json({ ok: true, data: stats });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
 // POST /api/vote/:setNum { direction: 'up'|'down' }
-app.post('/api/vote/:setNum', (req, res) => {
+app.post('/api/vote/:setNum', async (req, res) => {
   try {
     const { direction } = req.body;
     if (!['up', 'down'].includes(direction)) {
       return res.status(400).json({ ok: false, error: 'direction must be up or down' });
     }
-    const result = db.vote(req.params.setNum, direction);
+    const result = await db.vote(req.params.setNum, direction);
     res.json({ ok: true, data: result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -236,7 +237,7 @@ app.get(/.*/, (req, res) => {
 // ---- Startup ----
 async function startup() {
   // Init DB schema
-  db.getDb();
+  await db.getDb();
 
   // Start server first
   app.listen(PORT, () => {
